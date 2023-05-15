@@ -15,7 +15,6 @@ def rotate(image):
     """
     # extend the image borders so the morphological closing does not interfere with corners
     extended_image = cv2.copyMakeBorder(image, 100, 100, 100, 100, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-
     # resize image to reduce noisy contours
     scale_percent = 100
     width = int(extended_image.shape[1] * scale_percent / 100)
@@ -54,18 +53,16 @@ def rotate(image):
     # estimate the transformation matrix
     M, _ = cv2.estimateAffine2D(current_pts, dst_pts)
 
-    output_shape = (int(sx / scale_percent * 100), int(sy / scale_percent * 100))
     warped = cv2.warpAffine(extended_image, M, (int(sx),int(sy)))
-    cv2.imwrite("thresh.png", threshed)
-    cv2.imwrite("thresh_warp.png", cv2.warpAffine(threshed, M, (int(sx),int(sy))))
-    return warped, M, output_shape
+
+    return warped, M, (int(sx),int(sy))
 
 
 def minmax_stretch_one_channel(image, method="percentile"):
     """Min-max stretch for one-channel image."""
     if method == "percentile":
-        min_percent = 4
-        max_percent = 96
+        min_percent = 2
+        max_percent = 98
         lo, hi = np.nanpercentile(image, (min_percent, max_percent))
     elif method == "mean_std":
         image_mean = np.mean(image)
@@ -109,9 +106,9 @@ def cut_tiff(input_path, output_path, size=1024, preprocessing_method="percentil
         image = np.moveaxis(image, 0, -1)
     image = np.delete(image, [3], axis=2)[:, :, :]
     image = ((image - image.min()) * (1 / (image.max() - image.min()) * 255)).astype("uint8")
-    image, _, _ = rotate(image)
+    # image, M, _ = rotate(image)
     image = minmax_stretch(image, method=preprocessing_method)
-    tifffile.imwrite(os.path.join(input_path + "-rotated.tif"), image)
+    # tifffile.imwrite(os.path.join(input_path[:-4] + "-rotated.tif"), image)
     
     range_x = range(0, image.shape[0] // size) if (image.shape[0] // size) else [0]
     range_y = range(0, image.shape[1] // size) if (image.shape[0] // size) else [0]
@@ -127,9 +124,11 @@ def cut_tiff(input_path, output_path, size=1024, preprocessing_method="percentil
             curr_part = image[x:end_x, y:end_y, :]
             if np.any(curr_part):
                 cv2.imwrite(f"{output_path}/{filename}_{size}/{filename}_{x}_{y}.png", curr_part)
+                # np.save(f"{output_path}/{filename}_{size}/{filename}_transformation-matrix.npy", np.asarray(M[:, :]))
 
 
-def cut_classify_tiff(input_path, mask_path, output_path, size=128, preprocess=True):
+
+def cut_classify_tiff(input_path, mask_path, output_path, size=128, preprocessing_method="percentile", mask_thresh=0.033):
     """
     Cuts TIFF image and separated it into 'bombed' and 'not-bombed' directories.
     depending whether there are craters labeled on the mask.
@@ -150,18 +149,15 @@ def cut_classify_tiff(input_path, mask_path, output_path, size=128, preprocess=T
         os.mkdir(f"{output_path}/{filename}_{size}/bombed")
 
     image = tifffile.imread(input_path)
-    image = np.delete(image, [3], axis=2)[:, :, :]
-    # image = image[0:image.shape[0] // 1024 * 1024, 0:image.shape[1] // 1024 * 1024, :]
-    image = ((image - image.min()) * (1 / (image.max() - image.min()) * 255)).astype("uint8")
-    image, M, output_shape = rotate(image)
-    if preprocess:
-        image = minmax_stretch(image)
 
-    if not mask_path:
-        mask_path = filename + "_mask.tif"
+    if image.shape[-1] > 3:
+        image = np.delete(image, [3], axis=2)[:, :, :]
+    image = ((image - image.min()) * (1 / (image.max() - image.min()) * 255)).astype("uint8")
+    image = minmax_stretch(image, method=preprocessing_method)
+    # image, M, output_shape = rotate(image)
+    image = minmax_stretch(image, method=preprocessing_method)
+
     mask = tifffile.imread(mask_path)
-    mask = cv2.warpAffine(mask, M, output_shape)
-    cv2.imwrite("./mask.png", mask)
 
     for i in range(0, image.shape[0] // size):
         for j in range(0, image.shape[1] // size):
@@ -173,10 +169,10 @@ def cut_classify_tiff(input_path, mask_path, output_path, size=128, preprocess=T
             end_y = image.shape[1] if image.shape[1] - end_y < size else end_y
             curr_part = image[x:end_x, y:end_y, :]
             mask_curr_part = mask[x:end_x, y:end_y]
-            if np.any(curr_part):
-                label = "bombed" if (np.count_nonzero(mask_curr_part) / mask_curr_part.size >= 0.03) else "not-bombed"
+            if np.any(curr_part) and np.any(mask_curr_part):
+                label = "bombed" if (np.count_nonzero(mask_curr_part) / mask_curr_part.size >= mask_thresh) else "not-bombed"
                 cv2.imwrite(f"{output_path}/{filename}_{size}/{label}/{filename}_{x}_{y}.png", curr_part)
-                cv2.imwrite(f"{output_path}/{filename}_{size}/{label}/{filename}_{x}_{y}_mask.png", mask_curr_part)
+                # cv2.imwrite(f"{output_path}/{filename}_{size}/{label}/{filename}_{x}_{y}_mask.png", mask_curr_part)
 
 
 if __name__ == "__main__":
@@ -184,11 +180,10 @@ if __name__ == "__main__":
     parser.add_argument("--input", "-i", type=str,
                         help="Path to the input tiff file.")
     parser.add_argument("--mask", "-m", type=str, nargs="?",
-                        help="Path to the mask tiff file. If not passed, default = <input>_mask.tif")
+                        help="Path to the mask tiff file.")
     parser.add_argument("--output", "-o", type=str, default="./output",
                         help="Path to the folder with output images.")
-    parser.add_argument("--size", "-s", type=int, default=1024,
+    parser.add_argument("--size", "-s", type=int, default=128,
                         help="Size of the output images.")
     args = parser.parse_args()
-    # cut_tiff(args.input, args.output, args.size, "percentile")
-    cut_classify_tiff(args.input, args.mask, args.output, args.size)
+    cut_classify_tiff(args.input, args.mask, args.output, args.size, "percentile")

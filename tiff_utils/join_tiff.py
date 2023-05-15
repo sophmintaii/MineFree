@@ -5,6 +5,7 @@ from collections import defaultdict
 import cv2
 import numpy as np
 import tifffile
+import imagesize
 
 
 def collect_filenames_sizes(directory_path, filenames):
@@ -22,8 +23,7 @@ def collect_filenames_sizes(directory_path, filenames):
     for filename in filenames:
         img_name, x, y = tuple(filename.split(".")[0].split("_"))
         piles[img_name].append(os.path.join(directory_path, filename))
-        img = cv2.imread(os.path.join(directory_path, filename))
-        dimensions = img.shape
+        dimensions = imagesize.get(os.path.join(directory_path, filename))[::-1]
         image_sizes[img_name] = (max(image_sizes[img_name][0], int(x) + dimensions[0]),
                                  max(image_sizes[img_name][1], int(y) + dimensions[1]))
     return image_sizes, piles
@@ -87,8 +87,7 @@ def join_classification_dataset(input_path, output_path):
         image = np.zeros(image_sizes[filename])
         for pile_path in piles[filename]:
             if "not-bombed" not in pile_path:
-                image = replace_image_part(image, pile_path, True)
-        # tiff_image = tifffile.imread(os.path.join(output_path, filename + ".tif"))
+                image = replace_image_part(image, pile_path, None)
         image = cv2.convertScaleAbs(image, alpha=255.0)
         tifffile.imwrite(os.path.join(output_path, filename + "_labels.tif"), image)
 
@@ -117,6 +116,7 @@ def join_masks(masks_path, output_path):
         for pile_path in piles[filename]:
             image = replace_image_part(image, pile_path, None)
         image = cv2.convertScaleAbs(image, alpha=255.0)
+        print(os.path.join(output_path, filename + "_mask.tif"))
         tifffile.imwrite(os.path.join(output_path, filename + "_mask.tif"), image)
 
 
