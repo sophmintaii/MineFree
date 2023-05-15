@@ -38,7 +38,7 @@ optional arguments:
                         Path to the output directory.
 ```
 
-### [cut_tiff.py](https://github.com/sophmintaii/MineFree/blob/main/hyperparams_search.ipynb)
+### [hyperparams_search.ipynb](https://github.com/sophmintaii/MineFree/blob/main/hyperparams_search.ipynb)
 
 This Jupyter notebook that was exported from the Google Colab is used for the hyperparameters search.
 
